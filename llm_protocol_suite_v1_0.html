@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Protocol Suite v1.0</title>
+  <style>
+    :root { --bg:#f7f7f8; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --accent-soft:#eff6ff; --code-bg:#111827; --code-text:#e5e7eb; --warn-bg:#fffbeb; --warn-border:#f59e0b; --ok-bg:#ecfdf5; --ok-border:#10b981; }
+    *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.72;color:var(--text);background:var(--bg)}
+    header{background:linear-gradient(135deg,#0f172a,#1e293b);color:white;padding:56px 24px} header .inner,main,footer{max-width:1120px;margin:0 auto} h1{margin:0 0 12px;font-size:38px;line-height:1.2;letter-spacing:-.02em}.subtitle{color:#cbd5e1;font-size:18px;max-width:900px;margin:0}
+    main{padding:32px 24px 64px} nav{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 22px;margin-bottom:24px;box-shadow:0 8px 24px rgba(15,23,42,.04);position:sticky;top:12px;z-index:5} nav a{display:inline-block;margin:6px 14px 6px 0;color:var(--accent);text-decoration:none;white-space:nowrap;font-size:14px} nav a:hover{text-decoration:underline}
+    section{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:24px;box-shadow:0 8px 24px rgba(15,23,42,.04)} h2{margin:0 0 18px;font-size:26px;line-height:1.3;border-bottom:1px solid var(--border);padding-bottom:12px} h3{margin-top:28px;margin-bottom:10px;font-size:19px} h4{margin-top:22px;margin-bottom:8px;font-size:16px}
+    code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:.95em} pre{overflow-x:auto;background:var(--code-bg);color:var(--code-text);padding:18px;border-radius:12px;line-height:1.55;font-size:14px} pre code{color:inherit} table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px} th,td{border:1px solid var(--border);padding:10px 12px;text-align:left;vertical-align:top} th{background:#f3f4f6;font-weight:600}
+    .note,.warning,.success{border-left:4px solid var(--accent);background:var(--accent-soft);padding:14px 16px;border-radius:10px;margin:16px 0}.warning{border-left-color:var(--warn-border);background:var(--warn-bg)}.success{border-left-color:var(--ok-border);background:var(--ok-bg)}.badge{display:inline-block;padding:3px 9px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:13px;margin:2px 4px 2px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:18px 0}.mini-card{border:1px solid var(--border);border-radius:14px;padding:16px;background:#fafafa}.mini-card h3{margin-top:0} footer{padding:0 24px 40px;color:var(--muted);font-size:14px}@media(max-width:760px){.grid{grid-template-columns:1fr}h1{font-size:30px}section{padding:22px}nav{position:static}}
+  </style>
+</head>
+<body>
+<header><div class="inner"><h1>LLM Protocol Suite v1.0</h1><p class="subtitle">一套面向多模型、多模态、Tool Calling 和自研 Runtime 的协议套件。核心思想是“小核心 + 外围扩展”：Model Message Protocol 保持稳定简洁，Runtime Envelope 负责系统语义，Tool Execution Policy 作为 Runtime 子模块，Adapter Mapping Guide 只定义映射规则而不污染核心协议。</p></div></header>
+<main>
+<nav><a href="#overview">总览</a><a href="#principles">设计原则</a><a href="#model-protocol">Model Message Protocol</a><a href="#runtime-envelope">Runtime Envelope</a><a href="#tool-policy">Tool Execution Policy</a><a href="#adapter-guide">Adapter Guide</a><a href="#field-boundary">字段边界</a><a href="#examples">完整示例</a><a href="#migration">版本迁移</a><a href="#test-matrix">测试矩阵</a></nav>
+<section id="overview"><h2>1. 协议套件总览</h2><p>本协议套件不是四层协议栈，而是两个正式协议、一个 Runtime 子模块和一个实现文档。</p><pre><code>LLM Protocol Suite
+├── 1. LLM Model Message Protocol       # 核心协议
+├── 2. LLM Runtime Envelope Protocol    # 外围协议
+│   └── Tool Execution Policy           # Runtime 子模块
+└── 3. Adapter Mapping Guide            # 实现文档，不是协议</code></pre><div class="grid"><div class="mini-card"><h3>Model Message Protocol</h3><p>只描述模型输入和模型输出的语义，例如 messages、content、tool_calls、response_format。</p></div><div class="mini-card"><h3>Runtime Envelope Protocol</h3><p>包装一次模型调用，负责 request id、trace、usage、error、raw、provider_options 等系统语义。</p></div><div class="mini-card"><h3>Tool Execution Policy</h3><p>作为 Runtime 的子模块，描述工具执行策略，例如 timeout、retry、parallel、approval。</p></div><div class="mini-card"><h3>Adapter Mapping Guide</h3><p>说明内部协议如何映射到 OpenAI、DeepSeek、Anthropic、Gemini、LangChain 等外部格式。</p></div></div><div class="note">关键结论：正式协议只有两个，Model Message Protocol 和 Runtime Envelope Protocol。Tool Execution Policy 是 Runtime 的子模块，Adapter Mapping Guide 是实现指南。</div></section>
+<section id="principles"><h2>2. 设计原则</h2><h3>2.1 小核心 + 外围扩展</h3><p>Model 层必须尽量小、稳定、结构化。Runtime 层可以丰富，用于追踪、审计、错误、usage、provider 原始响应和执行策略。</p><h3>2.2 Provider Transport 不等于 Runtime Semantics</h3><p>Provider 的传输格式不应直接成为内部语义。例如 OpenAI Chat Completions 的 tool arguments 是 JSON string，但内部协议中 arguments 必须保持 dict。</p><pre><code># 内部语义
+ToolCall.arguments: dict
+
+# OpenAI Chat Completions adapter
+function.arguments: json.dumps(arguments)
+
+# Anthropic adapter
+input: arguments</code></pre><h3>2.3 不把 Event Sourcing 作为协议原则</h3><p>本协议以 request / response 为核心。Streaming 可以作为 adapter 或 runtime extension 支持，但不作为核心协议设计原则。</p><h3>2.4 不做 Workflow / DAG / Agent Orchestration 协议</h3><p>本协议不是工作流引擎协议，不描述多 Agent DAG、任务编排、事件总线或长期任务调度。</p></section>
+<section id="model-protocol"><h2>3. LLM Model Message Protocol</h2><p>Model Message Protocol 只描述模型侧语义：模型看到什么，以及模型输出什么。</p><h3>3.1 ModelRequest</h3><pre><code class="language-python">ModelRequest = {
+    "model": "deepseek-chat",
+    "messages": list,              # list[ModelMessage]
+    "tools": list,                 # list[ToolDefinition]
+    "tool_choice": "auto",         # none | auto | required | dict
+    "response_format": {"type": "text"},
+    "options": {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "max_tokens": 2048,
+        "stream": False,
+        "stop": None,
+        "seed": None
+    }
+}</code></pre><h3>3.2 ModelMessage</h3><pre><code class="language-python">ModelMessage = {
+    "role": "system" | "user" | "assistant" | "tool",
+    "content": list,               # list[ContentPart]
+    "name": None,
+
+    # assistant only
+    "tool_calls": None,            # list[ToolCall] | None
+
+    # tool only
+    "tool_call_id": None
+}</code></pre><table><thead><tr><th>role</th><th>允许字段</th><th>说明</th></tr></thead><tbody><tr><td><code>system</code></td><td><code>content</code>, <code>name</code></td><td>系统指令。</td></tr><tr><td><code>user</code></td><td><code>content</code>, <code>name</code></td><td>用户输入。</td></tr><tr><td><code>assistant</code></td><td><code>content</code>, <code>tool_calls</code>, <code>name</code></td><td>模型回复或模型发起工具调用。</td></tr><tr><td><code>tool</code></td><td><code>content</code>, <code>tool_call_id</code>, <code>name</code></td><td>工具执行结果。</td></tr></tbody></table><div class="warning"><strong>注意：</strong><code>tool_call_id</code> 只出现在 <code>role="tool"</code> 的消息中。assistant 发起调用时使用 <code>tool_calls[].id</code>，tool 返回结果时使用 <code>tool_call_id</code> 引用该 id。</div><h3>3.3 ContentPart</h3><p>所有消息内容统一使用 <code>content: list[ContentPart]</code>，即使只有纯文本也必须使用 list。</p><p><span class="badge">text</span><span class="badge">image</span><span class="badge">audio</span><span class="badge">file</span><span class="badge">json</span><span class="badge">tool_result</span><span class="badge">reasoning</span></p><pre><code class="language-python"># Text
+{"type": "text", "text": "你好，请帮我分析这份文件。"}
+
+# Image
+{
+    "type": "image",
+    "source": {"type": "url", "url": "https://example.com/image.png"},
+    "metadata": {"detail": "auto"}
+}
+
+# File
+{
+    "type": "file",
+    "source": {"type": "file_id", "file_id": "file_001"},
+    "metadata": {"filename": "report.pdf", "mime_type": "application/pdf"}
+}
+
+# JSON
+{"type": "json", "data": {"order_id": "o_123", "amount": 99.9}}
+
+# Tool Result
+{"type": "tool_result", "ok": True, "data": {"city": "北京", "temperature": 25}}
+
+# Reasoning
+{"type": "reasoning", "text": "模型内部推理内容"}</code></pre><div class="note"><code>reasoning</code> 是模型语义的一部分，但是否暴露给最终用户由 Runtime 或 Adapter 决定。</div><h3>3.4 Source</h3><pre><code class="language-python">{"type": "url", "url": str}
+{"type": "base64", "mime_type": str, "data": str}
+{"type": "file_id", "file_id": str}
+{"type": "path", "path": str}</code></pre><ul><li><code>base64</code> 必须带 <code>mime_type</code>。</li><li>大文件不建议内联，推荐使用 <code>file_id</code> 或 <code>url</code>。</li><li><code>file_id</code> 的有效期和访问范围由 Runtime 或 Adapter 定义。</li><li><code>path</code> 只用于内部 Runtime，不建议直接透传给 provider。</li></ul><h3>3.5 ToolDefinition</h3><pre><code class="language-python">ToolDefinition = {
+    "name": "get_weather",
+    "description": "获取指定城市的实时天气。",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "city": {"type": "string", "description": "城市名称"}
+        },
+        "required": ["city"]
+    }
+}</code></pre><h3>3.6 ToolCall</h3><pre><code class="language-python">ToolCall = {
+    "id": "call_001",
+    "type": "function",
+    "name": "get_weather",
+    "arguments": {"city": "北京"}
+}</code></pre><ul><li>表示一次逻辑 tool invocation。</li><li>可以来自 provider/model。</li><li>Runtime 可以补齐或重写。</li><li>Runtime 必须保证在一次 request/response lifecycle 内唯一。</li><li>retry 不应改变该 id。</li><li>tool message 使用 <code>tool_call_id</code> 引用该 id。</li></ul><div class="success">内部协议中 <code>ToolCall.arguments</code> 永远使用 <code>dict</code>。映射到 OpenAI Chat Completions 时，再由 adapter 转为 JSON string。</div><h3>3.7 ResponseFormat</h3><pre><code class="language-python">{"type": "text"}
+
+{"type": "json_object"}
+
+{
+    "type": "json_schema",
+    "json_schema": {
+        "name": "weather_answer",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+                "temperature": {"type": "number"}
+            },
+            "required": ["city", "temperature"],
+            "additionalProperties": False
+        },
+        "strict": True
+    },
+    "on_validation_error": "retry"  # retry | repair | error | ignore
+}</code></pre><h3>3.8 ModelResponse</h3><pre><code class="language-python">ModelResponse = {
+    "model": "deepseek-chat",
+    "message": ModelMessage
+}</code></pre><p>ModelResponse 只保留模型输出的结构化语义，不包含 usage、trace、raw、provider_options、latency 等系统字段。</p></section>
+<section id="runtime-envelope"><h2>4. LLM Runtime Envelope Protocol</h2><p>Runtime Envelope 包装一次模型调用，负责系统层语义。</p><h3>4.1 RuntimeRequest</h3><pre><code class="language-python">RuntimeRequest = {
+    "id": "req_001",
+    "protocol_version": "llm-runtime-v1.0",
+    "model_request": ModelRequest,
+    "tool_execution": ToolExecutionPolicy,
+    "trace": {
+        "trace_id": "trace_001",
+        "span_id": "span_001",
+        "parent_span_id": None
+    },
+    "metadata": {
+        "session_id": "session_001",
+        "user_id": "user_001"
+    },
+    "provider_options": {
+        "openai": {},
+        "anthropic": {},
+        "deepseek": {}
+    }
+}</code></pre><h3>4.2 RuntimeResponse</h3><pre><code class="language-python">RuntimeResponse = {
+    "id": "resp_001",
+    "request_id": "req_001",
+    "protocol_version": "llm-runtime-v1.0",
+    "model_response": ModelResponse,
+    "finish_reason": "stop",
+    "stop_reason": "stop_sequence",
+    "usage": {
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "total_tokens": 150,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0,
+        "details": {}
+    },
+    "timing": {
+        "started_at": "2026-05-13T12:00:00Z",
+        "ended_at": "2026-05-13T12:00:02Z",
+        "latency_ms": 2000
+    },
+    "error": None,
+    "metadata": {},
+    "provider_response_metadata": {},
+    "raw": None
+}</code></pre><h3>4.3 FinishReason</h3><pre><code>stop
+length
+tool_calls
+content_filter
+error
+cancelled
+timeout
+provider_error</code></pre><h3>4.4 StopReason</h3><pre><code>eos_token
+stop_sequence
+user_interrupt
+max_tokens
+tool_use
+safety_filter
+provider_stop</code></pre><div class="note"><code>finish_reason</code> 表示最终终止类型，<code>stop_reason</code> 表示更具体的停止原因。</div><h3>4.5 Runtime Error</h3><pre><code class="language-python">RuntimeErrorObject = {
+    "code": "PROVIDER_TIMEOUT",
+    "message": "Provider request timeout.",
+    "type": "timeout",
+    "retryable": True,
+    "details": {}
+}</code></pre><h3>4.6 Usage</h3><pre><code class="language-python">Usage = {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150,
+    "reasoning_tokens": 20,
+    "cached_tokens": 10,
+    "image_tokens": 0,
+    "audio_tokens": 0,
+    "tool_tokens": 0,
+    "details": {}
+}</code></pre><h3>4.7 Runtime 字段说明</h3><table><thead><tr><th>字段</th><th>归属</th><th>说明</th></tr></thead><tbody><tr><td><code>metadata</code></td><td>Runtime</td><td>业务侧元信息，例如 session_id、user_id、业务 trace。</td></tr><tr><td><code>provider_options</code></td><td>Runtime / Adapter</td><td>provider 私有参数，只允许 adapter 使用，业务层不应依赖。</td></tr><tr><td><code>provider_response_metadata</code></td><td>Runtime</td><td>provider 返回的非核心元信息。</td></tr><tr><td><code>raw</code></td><td>Runtime</td><td>provider 原始响应，可选，生产环境可关闭保存。</td></tr></tbody></table><h3>4.8 Null、时间与日志</h3><ul><li>字段缺失表示使用默认行为。</li><li><code>field = None</code> 表示显式为空。</li><li>所有时间字段统一使用 RFC3339 / ISO8601 UTC，例如 <code>2026-05-13T12:30:00Z</code>。</li><li>生产日志默认不建议记录 base64 原文、文件内容、API key、用户敏感信息和完整 raw provider payload。</li></ul></section>
+<section id="tool-policy"><h2>5. Tool Execution Policy</h2><p>Tool Execution Policy 是 Runtime Envelope 的子模块，不是独立顶层协议。</p><h3>5.1 Policy Schema</h3><pre><code class="language-python">ToolExecutionPolicy = {
+    "enabled": True,
+    "parallel": True,
+    "timeout_ms": 30000,
+    "max_retries": 1,
+    "retry_policy": {
+        "backoff": "exponential",
+        "initial_delay_ms": 200,
+        "max_delay_ms": 2000
+    },
+    "approval_required_tools": [
+        "send_email",
+        "delete_file",
+        "execute_shell"
+    ],
+    "default_approval_required": False
+}</code></pre><h3>5.2 Tool Execution Record</h3><pre><code class="language-python">ToolExecutionRecord = {
+    "tool_call_id": "call_001",
+    "name": "get_weather",
+    "status": "success",  # pending | running | success | error | cancelled | timeout | retrying
+    "attempt": 1,
+    "max_retries": 1,
+    "started_at": "2026-05-13T12:00:00Z",
+    "ended_at": "2026-05-13T12:00:01Z",
+    "latency_ms": 1000,
+    "error": None,
+    "approval": {"required": False, "status": "not_required"}
+}</code></pre><h3>5.3 Tool Error</h3><pre><code class="language-python">{
+    "type": "tool_result",
+    "ok": False,
+    "error": {
+        "code": "NETWORK_ERROR",
+        "message": "请求超时",
+        "retryable": True
+    }
+}</code></pre><h3>5.4 并发与审批</h3><ul><li>assistant 可以一次返回多个 tool calls。</li><li>Runtime 可以并发执行。</li><li>允许部分成功、部分失败。</li><li>tool result 不要求按原顺序返回。</li><li>绑定关系只依赖 <code>assistant.tool_calls[].id</code> 与 <code>tool.tool_call_id</code>。</li><li>高风险工具必须支持用户审批，例如发邮件、删除文件、付款、执行 shell、修改生产数据。</li></ul></section>
+<section id="adapter-guide"><h2>6. Adapter Mapping Guide</h2><p>Adapter Mapping Guide 不是核心协议，只描述内部协议与外部 provider 之间的映射。</p><h3>6.1 OpenAI Chat Completions</h3><table><thead><tr><th>内部字段</th><th>OpenAI Chat Completions</th><th>说明</th></tr></thead><tbody><tr><td><code>ModelMessage.role</code></td><td><code>messages[].role</code></td><td>直接映射。</td></tr><tr><td><code>ContentPart.text</code></td><td><code>content[].text</code> 或 string content</td><td>由 adapter 选择兼容格式。</td></tr><tr><td><code>ToolDefinition</code></td><td><code>tools[].function</code></td><td>parameters 直接映射为 JSON Schema。</td></tr><tr><td><code>ToolCall.arguments: dict</code></td><td><code>function.arguments: string</code></td><td>adapter 执行 <code>json.dumps(arguments)</code>。</td></tr><tr><td><code>tool.tool_call_id</code></td><td><code>tool_call_id</code></td><td>直接映射。</td></tr></tbody></table><h3>6.2 Anthropic</h3><table><thead><tr><th>内部字段</th><th>Anthropic</th><th>说明</th></tr></thead><tbody><tr><td><code>ToolCall.arguments</code></td><td><code>input</code></td><td>Anthropic tool input 通常是 object，可直接映射。</td></tr><tr><td><code>tool_result</code></td><td><code>tool_result block</code></td><td>由 adapter 转换 content block。</td></tr><tr><td><code>reasoning</code></td><td><code>thinking / reasoning block</code></td><td>是否启用取决于 provider capability。</td></tr></tbody></table><h3>6.3 OpenAI-compatible Provider</h3><p>DeepSeek、部分国产模型、部分本地模型可能声称 OpenAI-compatible，但实际行为可能存在差异：</p><ul><li>tool_call id 可能缺失或重复。</li><li>arguments 可能不是合法 JSON string。</li><li>finish_reason 枚举可能不同。</li><li>usage 字段可能缺失。</li></ul><div class="warning">Adapter 必须 normalize provider response，再进入内部协议。业务层不应直接消费 provider 原始结构。</div><h3>6.4 Capability</h3><pre><code class="language-python">ModelCapability = {
+    "text": True,
+    "image": True,
+    "audio": False,
+    "file": True,
+    "tools": True,
+    "json_schema": True,
+    "stream": True,
+    "reasoning": False
+}</code></pre></section>
+<section id="field-boundary"><h2>7. 字段边界总结</h2><table><thead><tr><th>字段</th><th>归属</th><th>是否进入 Model Protocol</th></tr></thead><tbody><tr><td><code>role</code></td><td>Model</td><td>是</td></tr><tr><td><code>content</code></td><td>Model</td><td>是</td></tr><tr><td><code>tool_calls</code></td><td>Model</td><td>是</td></tr><tr><td><code>tool_call_id</code></td><td>Model</td><td>是，仅 tool message</td></tr><tr><td><code>tools</code></td><td>Model</td><td>是</td></tr><tr><td><code>response_format</code></td><td>Model</td><td>是</td></tr><tr><td><code>temperature/top_p/max_tokens</code></td><td>Model</td><td>是</td></tr><tr><td><code>id/request_id/trace_id</code></td><td>Runtime</td><td>否</td></tr><tr><td><code>usage</code></td><td>Runtime</td><td>否</td></tr><tr><td><code>finish_reason/stop_reason</code></td><td>Runtime Response</td><td>否</td></tr><tr><td><code>error</code></td><td>Runtime</td><td>否</td></tr><tr><td><code>raw</code></td><td>Runtime</td><td>否</td></tr><tr><td><code>provider_options</code></td><td>Runtime / Adapter</td><td>否</td></tr><tr><td><code>approval/retry/timeout</code></td><td>Tool Execution Policy</td><td>否</td></tr></tbody></table></section>
+<section id="examples"><h2>8. 完整示例</h2><h3>8.1 RuntimeRequest</h3><pre><code class="language-python">request = {
+    "id": "req_001",
+    "protocol_version": "llm-runtime-v1.0",
+    "model_request": {
+        "model": "deepseek-chat",
+        "messages": [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": "你是一个严谨、简洁的 AI 助手。"}]
+            },
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "北京天气怎么样？"}]
+            }
+        ],
+        "tools": [
+            {
+                "name": "get_weather",
+                "description": "获取指定城市的实时天气。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string", "description": "城市名称"}
+                    },
+                    "required": ["city"]
+                }
+            }
+        ],
+        "tool_choice": "auto",
+        "response_format": {"type": "text"},
+        "options": {"temperature": 0.2, "top_p": 1.0, "max_tokens": 1024, "stream": False}
+    },
+    "tool_execution": {
+        "enabled": True,
+        "parallel": True,
+        "timeout_ms": 30000,
+        "max_retries": 1,
+        "approval_required_tools": [],
+        "default_approval_required": False
+    },
+    "trace": {"trace_id": "trace_001", "span_id": "span_001", "parent_span_id": None},
+    "metadata": {"session_id": "session_001"},
+    "provider_options": {}
+}</code></pre><h3>8.2 Assistant Tool Call</h3><pre><code class="language-python">assistant_message = {
+    "role": "assistant",
+    "content": [],
+    "tool_calls": [
+        {
+            "id": "call_001",
+            "type": "function",
+            "name": "get_weather",
+            "arguments": {"city": "北京"}
+        }
+    ]
+}</code></pre><h3>8.3 Tool Result Message</h3><pre><code class="language-python">tool_message = {
+    "role": "tool",
+    "tool_call_id": "call_001",
+    "name": "get_weather",
+    "content": [
+        {
+            "type": "tool_result",
+            "ok": True,
+            "data": {"city": "北京", "temperature": 25, "condition": "晴"}
+        }
+    ]
+}</code></pre><h3>8.4 RuntimeResponse</h3><pre><code class="language-python">response = {
+    "id": "resp_001",
+    "request_id": "req_001",
+    "protocol_version": "llm-runtime-v1.0",
+    "model_response": {
+        "model": "deepseek-chat",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "北京当前天气晴，气温约 25℃。"}],
+            "tool_calls": None,
+            "tool_call_id": None,
+            "name": None
+        }
+    },
+    "finish_reason": "stop",
+    "stop_reason": "eos_token",
+    "usage": {
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "total_tokens": 150,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0,
+        "details": {}
+    },
+    "timing": {
+        "started_at": "2026-05-13T12:00:00Z",
+        "ended_at": "2026-05-13T12:00:02Z",
+        "latency_ms": 2000
+    },
+    "error": None,
+    "metadata": {},
+    "provider_response_metadata": {},
+    "raw": None
+}</code></pre></section>
+<section id="migration"><h2>9. 版本与迁移</h2><h3>9.1 版本号</h3><p>Runtime 协议版本与 Model 协议版本可以分开演进。</p><pre><code>model_protocol_version: llm-model-v1.0
+runtime_protocol_version: llm-runtime-v1.0</code></pre><h3>9.2 Breaking Change</h3><ul><li>删除字段</li><li>字段改名</li><li>字段类型变化</li><li>枚举值删除</li><li>字段语义变化</li></ul><h3>9.3 Non-breaking Change</h3><ul><li>新增可选字段</li><li>新增 provider_options 子字段</li><li>usage.details 增加新 key</li><li>新增可忽略的 metadata 字段</li></ul><h3>9.4 v1 迁移建议</h3><table><thead><tr><th>旧字段</th><th>新位置</th></tr></thead><tbody><tr><td><code>messages</code></td><td><code>runtime_request.model_request.messages</code></td></tr><tr><td><code>tools</code></td><td><code>runtime_request.model_request.tools</code></td></tr><tr><td><code>response_format</code></td><td><code>runtime_request.model_request.response_format</code></td></tr><tr><td><code>metadata</code></td><td><code>runtime_request.metadata</code></td></tr><tr><td><code>provider_options</code></td><td><code>runtime_request.provider_options</code></td></tr><tr><td><code>usage</code></td><td><code>runtime_response.usage</code></td></tr><tr><td><code>raw</code></td><td><code>runtime_response.raw</code></td></tr></tbody></table></section>
+<section id="test-matrix"><h2>10. 测试矩阵</h2><table><thead><tr><th>场景</th><th>必须覆盖</th></tr></thead><tbody><tr><td>纯文本对话</td><td>system/user/assistant text content</td></tr><tr><td>图片输入</td><td>image url / image base64 / mime_type</td></tr><tr><td>文件输入</td><td>file_id / url / filename / mime_type</td></tr><tr><td>单 tool call</td><td>assistant.tool_calls[].id 与 tool.tool_call_id 绑定</td></tr><tr><td>多 tool call</td><td>并发、乱序返回、部分失败</td></tr><tr><td>tool error</td><td>ok=false / error.code / retryable</td></tr><tr><td>JSON Schema 输出</td><td>strict / validation failure / retry policy</td></tr><tr><td>length stop</td><td>finish_reason=length / stop_reason=max_tokens</td></tr><tr><td>safety/content filter</td><td>finish_reason=content_filter</td></tr><tr><td>provider error</td><td>RuntimeResponse.error / retryable</td></tr><tr><td>OpenAI adapter</td><td>arguments dict ↔ JSON string</td></tr><tr><td>OpenAI-compatible 异常</td><td>缺失 tool id、重复 tool id、非法 JSON arguments</td></tr></tbody></table></section>
+<section id="conclusion"><h2>11. 最终结论</h2><div class="success">推荐采用：两个正式协议，一个 Runtime 子模块，一个实现指南。</div><pre><code>LLM Protocol Suite
+├── LLM Model Message Protocol
+│   └── 小核心，描述模型输入输出
+├── LLM Runtime Envelope Protocol
+│   └── 外围包装，描述系统运行语义
+│       └── Tool Execution Policy
+│           └── 工具执行策略，不独立成顶层协议
+└── Adapter Mapping Guide
+    └── 映射指南，不污染核心协议</code></pre><p>这套结构的核心优势：</p><ul><li>Model Protocol 稳定，不被系统字段污染。</li><li>Runtime Envelope 可演进，适合 trace、usage、error、raw、provider 差异。</li><li>Tool Execution 不过度抽象，避免滑向 workflow engine。</li><li>Adapter Guide 独立，防止 OpenAI / Anthropic / DeepSeek 等 provider 细节污染核心协议。</li></ul></section>
+</main><footer>LLM Protocol Suite v1.0 · Model Message Protocol + Runtime Envelope Protocol + Tool Execution Policy + Adapter Mapping Guide</footer>
+</body>
+</html>

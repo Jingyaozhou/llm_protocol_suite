@@ -36,6 +36,7 @@ from .model import (
 )
 from .runtime import RuntimeErrorObject, RuntimeRequest, RuntimeResponse, Timing, Trace, Usage
 from .tools import RetryPolicy, ToolApproval, ToolExecutionPolicy, ToolExecutionRecord
+from .usage import help_for, list_topics, llm_usage
 
 __version__ = "0.1.0"
 
@@ -52,6 +53,9 @@ __all__ = [
     "JsonPart",
     "JsonSchemaDefinition",
     "JsonSchemaResponseFormat",
+    "help_for",
+    "list_topics",
+    "llm_usage",
     "ModelMessage",
     "ModelOptions",
     "ModelRequest",

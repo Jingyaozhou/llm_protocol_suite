@@ -1,3 +1,6 @@
+"""Exceptions raised by the LLM Protocol Suite."""
+
+
 class LLMProtocolSuiteError(Exception):
     """Base exception for llm-protocol-suite."""
 

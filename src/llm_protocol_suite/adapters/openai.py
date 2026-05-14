@@ -1,3 +1,11 @@
+"""OpenAI Chat API adapter — convert between protocol models and OpenAI format.
+
+Public API:
+
+* :func:`to_openai_chat_request`  — :class:`ModelRequest` → OpenAI request dict
+* :func:`from_openai_chat_response` — OpenAI response dict → :class:`ModelResponse`
+"""
+
 import json
 from typing import Any
 
@@ -19,6 +27,21 @@ from llm_protocol_suite.runtime import RuntimeRequest
 
 
 def to_openai_chat_request(request: ModelRequest | RuntimeRequest) -> dict[str, Any]:
+    """Convert a :class:`ModelRequest` or :class:`RuntimeRequest` to an OpenAI Chat API payload.
+
+    If a :class:`RuntimeRequest` is passed, its inner ``model_request`` is used.
+
+    Example::
+
+        from llm_protocol_suite import ModelRequest, ModelMessage, TextPart
+
+        request = ModelRequest(
+            model="gpt-4.1-mini",
+            messages=[ModelMessage(role="user", content=[TextPart(text="Hello")])],
+        )
+        payload = to_openai_chat_request(request)
+        assert payload["model"] == "gpt-4.1-mini"
+    """
     model_request = request.model_request if isinstance(request, RuntimeRequest) else request
     payload: dict[str, Any] = {
         "model": model_request.model,
@@ -33,6 +56,19 @@ def to_openai_chat_request(request: ModelRequest | RuntimeRequest) -> dict[str, 
 
 
 def from_openai_chat_response(response: dict[str, Any]) -> ModelResponse:
+    """Parse an OpenAI Chat API response dict into a :class:`ModelResponse`.
+
+    Raises :class:`AdapterNormalizationError` if the response shape is
+    invalid or contains duplicate tool-call IDs.
+
+    Example::
+
+        resp = from_openai_chat_response({
+            "model": "gpt-4.1-mini",
+            "choices": [{"message": {"role": "assistant", "content": "Hi!"}}],
+        })
+        assert resp.message.content[0].text == "Hi!"
+    """
     try:
         choice = response["choices"][0]
         message_data = choice["message"]

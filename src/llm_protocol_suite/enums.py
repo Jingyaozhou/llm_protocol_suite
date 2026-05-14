@@ -1,3 +1,5 @@
+"""Enumerations used across the protocol: message roles, content types, and stop/finish reasons."""
+
 from enum import Enum
 
 
